@@ -66,9 +66,18 @@ UKF::UKF() {
   // create matrix with predicted sigma points as columns
   Xsig_pred_ = MatrixXd(n_x_, 2*n_aug_+1);
   //define spreading parameter
-  lambda_ = 3-n_x_;//_aug or n_x
-
-
+  lambda_ = 3-n_aug_;//_aug or n_x
+  weights_ = VectorXd(2*n_aug_+1);
+  // set weights
+        double weight_0 = lambda_/(lambda_+n_aug_);
+        weights_(0) = weight_0;
+        for(int i =1; i<2*n_aug_+1;++i){
+            double weight = 0.5/(n_aug_+lambda_);
+            weights_(i)=weight;
+        }
+  P_ = MatrixXd::Identity(n_x_,n_x_);
+  P_(3,3)=std_laspx_*std_laspx_;
+  P_(4,4) = std_laspy_*std_laspy_;
 
 }
 
@@ -79,31 +88,35 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
    * TODO: Complete this function! Make sure you switch between lidar and radar
    * measurements.
    */
-  while(!is_initialized_){
+  if(!is_initialized_){
     time_us_ = meas_package.timestamp_;
-    if(meas_package.sensor_type_==MeasurementPackage::RADAR){
+    if(meas_package.sensor_type_==MeasurementPackage::RADAR)
+    {
       // RADAR code
       auto ro = static_cast<float>(meas_package.raw_measurements_(0));     
       auto phi = static_cast<float>(meas_package.raw_measurements_(1));
       x_ << ro * cos(phi), ro * sin(phi), 0, 0, 0;
       is_initialized_=true;
     }
-    else if (meas_package.sensor_type_==MeasurementPackage::LASER){
+    if (meas_package.sensor_type_==MeasurementPackage::LASER)
+    {
       // LIDAR Code
       
       x_ << meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 0, 0, 0;
       is_initialized_=true;
     }
-    double dt = (meas_package.timestamp_ - time_us_) / 1000000.0;
-    time_us_ = meas_package.timestamp_;
+    return;
+  }
+  double dt = (meas_package.timestamp_ - time_us_) / 1000000.0;
+    
     Prediction(dt);
-    if(meas_package.sensor_type_==MeasurementPackage::RADAR){
+    if(meas_package.sensor_type_==MeasurementPackage::RADAR && use_radar_){
       UpdateRadar(meas_package);
     }
-    else if(meas_package.sensor_type_ == MeasurementPackage::LASER){
+    if(meas_package.sensor_type_ == MeasurementPackage::LASER && use_laser_){
       UpdateLidar(meas_package);
     }
-  }
+    time_us_ = meas_package.timestamp_;
 }
 
 void UKF::Prediction(double delta_t) {
@@ -192,38 +205,34 @@ void UKF::Prediction(double delta_t) {
 
     //Begin predict mean and covariance - Using Xsig_pred_ and generating x and P
     // create vector for weights
-      VectorXd weights = VectorXd(2*n_aug_+1);
+      //VectorXd weights = VectorXd(2*n_aug_+1);
       
-      // create vector for predicted state
-      VectorXd x = VectorXd(n_x_);
+      
 
-      // create covariance matrix for prediction
-      MatrixXd P = MatrixXd(n_x_, n_x_);
-
-      // set weights
-        double weight_0 = lambda_/(lambda_+n_aug_);
-        weights(0) = weight_0;
-        for(int i =1; i<2*n_aug_+1;++i){
-            double weight = 0.5/(n_aug_+lambda_);
-            weights(i)=weight;
-        }
+      // // set weights
+      //   double weight_0 = lambda_/(lambda_+n_aug_);
+      //   weights_(0) = weight_0;
+      //   for(int i =1; i<2*n_aug_+1;++i){
+      //       double weight = 0.5/(n_aug_+lambda_);
+      //       weights_(i)=weight;
+      //   }
         
       // predict state mean
-        x.fill(0.0);
+        x_.fill(0.0);
         for (int i = 0;i<2*n_aug_ + 1;++i){
-            x=x+weights(i)*Xsig_pred_.col(i);
+            x_=x_+weights_(i)*Xsig_pred_.col(i);
         }
       // predict state covariance matrix
-        P.fill(0.0);
+        P_.fill(0.0);
         for(int i = 0; i<2*n_aug_ + 1;++i){
-            VectorXd x_diff = Xsig_pred_.col(i)-x;
+            VectorXd x_diff = Xsig_pred_.col(i)-x_;
             //normalizing angles.
             while(x_diff(3)> M_PI)
             x_diff(3)-=2.*M_PI;
             while(x_diff(3)<-M_PI)
             x_diff(3)+=2.*M_PI;
             
-            P = P + weights(i)*x_diff*x_diff.transpose();
+            P_ = P_ + weights_(i)*x_diff*x_diff.transpose();
         }
       
       // print result
@@ -322,7 +331,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
     P_=P_-K*S*K.transpose();
 
     //optional
-    double nis_lidar = z_diff.transpose() * S.inverse() * z_diff;
+    //double nis_lidar = z_diff.transpose() * S.inverse() * z_diff;
 }
 
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
